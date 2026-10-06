@@ -3,6 +3,36 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+// curl 8.22 limits config-win32.h to old Visual Studio project builds.
+// curl-sys builds libcurl directly with cc, so reuse the platform settings
+// as curl_config.h without the build-system guard.
+fn write_windows_config(dst: &Path) {
+    let config = fs::read_to_string("curl/lib/config-win32.h").unwrap();
+    let mut lines = config.lines();
+    let mut output = String::new();
+    let mut removed_version_guard = false;
+
+    while let Some(line) = lines.next() {
+        if line == "#if !defined(_MSC_VER) || _MSC_VER > 1800" {
+            assert_eq!(
+                lines.next(),
+                Some(
+                    "#error This manual configuration requires MSVC 2010-2013 (IDE Project builds)"
+                )
+            );
+            assert_eq!(lines.next(), Some("#endif"));
+            removed_version_guard = true;
+            continue;
+        }
+
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    assert!(removed_version_guard);
+    fs::write(dst.join("curl_config.h"), output).unwrap();
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=curl");
     println!(
@@ -51,20 +81,12 @@ fn main() {
             .status();
     }
 
-    if target.contains("apple") {
-        // On (older) OSX we need to link against the clang runtime,
-        // which is hidden in some non-default path.
-        //
-        // More details at https://github.com/alexcrichton/curl-rust/issues/279.
-        if let Some(path) = macos_link_search_path() {
-            println!("cargo:rustc-link-lib=clang_rt.osx");
-            println!("cargo:rustc-link-search={}", path);
-        }
-    }
-
     let dst = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let include = dst.join("include");
     let build = dst.join("build");
+    if windows {
+        write_windows_config(&dst);
+    }
     println!("cargo:root={}", dst.display());
     println!("cargo:include={}", include.display());
     println!("cargo:static=1");
@@ -108,7 +130,7 @@ fn main() {
             .replace("@LIBCURL_LIBS@", "")
             .replace("@SUPPORT_FEATURES@", "")
             .replace("@SUPPORT_PROTOCOLS@", "")
-            .replace("@CURLVERSION@", "8.11.0"),
+            .replace("@CURLVERSION@", "8.22.0"),
     )
     .unwrap();
 
@@ -138,104 +160,143 @@ fn main() {
         .define("HAVE_LIBZ", None)
         .define("HAVE_BOOL_T", None)
         .define("HAVE_STDBOOL_H", None)
-        .file("curl/lib/asyn-thread.c")
+        .define("HAVE_STDINT_H", None)
+        .define("USE_RESOLV_THREADED", None)
         .file("curl/lib/altsvc.c")
-        .file("curl/lib/base64.c")
+        .file("curl/lib/api.c")
         .file("curl/lib/bufq.c")
         .file("curl/lib/bufref.c")
-        .file("curl/lib/cfilters.c")
         .file("curl/lib/cf-h1-proxy.c")
         .file("curl/lib/cf-haproxy.c")
         .file("curl/lib/cf-https-connect.c")
+        .file("curl/lib/cf-ip-happy.c")
+        .file("curl/lib/cf-recvbuf.c")
+        .file("curl/lib/cf-setup.c")
         .file("curl/lib/cf-socket.c")
+        .file("curl/lib/cfilters.c")
         .file("curl/lib/conncache.c")
         .file("curl/lib/connect.c")
         .file("curl/lib/content_encoding.c")
         .file("curl/lib/cookie.c")
+        .file("curl/lib/creds.c")
+        .file("curl/lib/cshutdn.c")
         .file("curl/lib/curl_addrinfo.c")
+        .file("curl/lib/curl_ed25519.c")
+        .file("curl/lib/curl_fopen.c")
         .file("curl/lib/curl_get_line.c")
         .file("curl/lib/curl_memrchr.c")
         .file("curl/lib/curl_range.c")
         .file("curl/lib/curl_sha512_256.c")
+        .file("curl/lib/curl_share.c")
         .file("curl/lib/curl_threads.c")
         .file("curl/lib/curl_trc.c")
+        .file("curl/lib/curlx/base64.c")
+        .file("curl/lib/curlx/basename.c")
+        .file("curl/lib/curlx/dynbuf.c")
+        .file("curl/lib/curlx/fopen.c")
+        .file("curl/lib/curlx/inet_ntop.c")
+        .file("curl/lib/curlx/inet_pton.c")
+        .file("curl/lib/curlx/nonblock.c")
+        .file("curl/lib/curlx/snprintf.c")
+        .file("curl/lib/curlx/strcopy.c")
+        .file("curl/lib/curlx/strdup.c")
+        .file("curl/lib/curlx/strerr.c")
+        .file("curl/lib/curlx/strparse.c")
+        .file("curl/lib/curlx/timediff.c")
+        .file("curl/lib/curlx/timeval.c")
+        .file("curl/lib/curlx/wait.c")
+        .file("curl/lib/curlx/warnless.c")
         .file("curl/lib/cw-out.c")
-        .file("curl/lib/doh.c")
-        .file("curl/lib/dynbuf.c")
+        .file("curl/lib/cw-pause.c")
+        .file("curl/lib/dict.c")
         .file("curl/lib/dynhds.c")
         .file("curl/lib/easy.c")
         .file("curl/lib/escape.c")
         .file("curl/lib/file.c")
         .file("curl/lib/fileinfo.c")
-        .file("curl/lib/fopen.c")
         .file("curl/lib/formdata.c")
+        .file("curl/lib/ftp.c")
         .file("curl/lib/getenv.c")
         .file("curl/lib/getinfo.c")
+        .file("curl/lib/gopher.c")
         .file("curl/lib/hash.c")
         .file("curl/lib/headers.c")
         .file("curl/lib/hmac.c")
-        .file("curl/lib/hostasyn.c")
-        .file("curl/lib/hostip.c")
-        .file("curl/lib/hostip6.c")
         .file("curl/lib/hsts.c")
         .file("curl/lib/http.c")
         .file("curl/lib/http1.c")
         .file("curl/lib/http_aws_sigv4.c")
         .file("curl/lib/http_chunks.c")
         .file("curl/lib/http_digest.c")
+        .file("curl/lib/http_httpsig.c")
         .file("curl/lib/http_proxy.c")
         .file("curl/lib/idn.c")
         .file("curl/lib/if2ip.c")
-        .file("curl/lib/inet_ntop.c")
-        .file("curl/lib/inet_pton.c")
+        .file("curl/lib/imap.c")
+        .file("curl/lib/ldap.c")
         .file("curl/lib/llist.c")
+        .file("curl/lib/macos.c")
         .file("curl/lib/md5.c")
         .file("curl/lib/mime.c")
-        .file("curl/lib/macos.c")
         .file("curl/lib/mprintf.c")
         .file("curl/lib/mqtt.c")
         .file("curl/lib/multi.c")
+        .file("curl/lib/multi_ev.c")
+        .file("curl/lib/multi_ntfy.c")
         .file("curl/lib/netrc.c")
-        .file("curl/lib/nonblock.c")
-        .file("curl/lib/noproxy.c")
         .file("curl/lib/parsedate.c")
+        .file("curl/lib/peer.c")
+        .file("curl/lib/pop3.c")
         .file("curl/lib/progress.c")
+        .file("curl/lib/protocol.c")
+        .file("curl/lib/proxy.c")
         .file("curl/lib/rand.c")
-        .file("curl/lib/rename.c")
+        .file("curl/lib/ratelimit.c")
         .file("curl/lib/request.c")
+        .file("curl/lib/rtsp.c")
         .file("curl/lib/select.c")
         .file("curl/lib/sendf.c")
         .file("curl/lib/setopt.c")
         .file("curl/lib/sha256.c")
-        .file("curl/lib/share.c")
         .file("curl/lib/slist.c")
-        .file("curl/lib/socks.c")
+        .file("curl/lib/smb.c")
+        .file("curl/lib/smtp.c")
         .file("curl/lib/socketpair.c")
-        .file("curl/lib/speedcheck.c")
+        .file("curl/lib/socks.c")
         .file("curl/lib/splay.c")
         .file("curl/lib/strcase.c")
-        .file("curl/lib/strdup.c")
+        .file("curl/lib/strequal.c")
         .file("curl/lib/strerror.c")
-        .file("curl/lib/strtok.c")
-        .file("curl/lib/strtoofft.c")
-        .file("curl/lib/timeval.c")
+        .file("curl/lib/telnet.c")
+        .file("curl/lib/tftp.c")
+        .file("curl/lib/thrdpool.c")
+        .file("curl/lib/thrdqueue.c")
         .file("curl/lib/transfer.c")
+        .file("curl/lib/uint-bset.c")
+        .file("curl/lib/uint-hash.c")
+        .file("curl/lib/uint-hashset.c")
+        .file("curl/lib/uint-spbset.c")
+        .file("curl/lib/uint-table.c")
         .file("curl/lib/url.c")
         .file("curl/lib/urlapi.c")
-        .file("curl/lib/version.c")
         .file("curl/lib/vauth/digest.c")
         .file("curl/lib/vauth/vauth.c")
-        .file("curl/lib/vquic/curl_msh3.c")
-        .file("curl/lib/vquic/curl_ngtcp2.c")
-        .file("curl/lib/vquic/curl_osslq.c")
-        .file("curl/lib/vquic/curl_quiche.c")
-        .file("curl/lib/vquic/vquic.c")
+        .file("curl/lib/vdns/asyn-base.c")
+        .file("curl/lib/vdns/asyn-thrdd.c")
+        .file("curl/lib/vdns/cf-dns.c")
+        .file("curl/lib/vdns/dnscache.c")
+        .file("curl/lib/vdns/doh.c")
+        .file("curl/lib/vdns/hostip.c")
+        .file("curl/lib/vdns/hostip6.c")
+        .file("curl/lib/version.c")
         .file("curl/lib/vquic/vquic-tls.c")
+        .file("curl/lib/vquic/vquic.c")
+        .file("curl/lib/vssh/vssh.c")
         .file("curl/lib/vtls/hostcheck.c")
         .file("curl/lib/vtls/keylog.c")
         .file("curl/lib/vtls/vtls.c")
-        .file("curl/lib/warnless.c")
-        .file("curl/lib/timediff.c")
+        .file("curl/lib/vtls/vtls_config.c")
+        .file("curl/lib/vtls/vtls_scache.c")
         .file("curl/lib/ws.c")
         .define("HAVE_GETADDRINFO", None)
         .define("HAVE_GETPEERNAME", None)
@@ -243,8 +304,7 @@ fn main() {
         .warnings(false);
 
     if cfg!(feature = "ntlm") {
-        cfg.file("curl/lib/curl_des.c")
-            .file("curl/lib/curl_endian.c")
+        cfg.file("curl/lib/curl_endian.c")
             .file("curl/lib/curl_gethostname.c")
             .file("curl/lib/curl_ntlm_core.c")
             .file("curl/lib/http_ntlm.c")
@@ -294,6 +354,7 @@ fn main() {
         cfg.define("USE_RUSTLS", None)
             .file("curl/lib/vtls/cipher_suite.c")
             .file("curl/lib/vtls/rustls.c")
+            .file("curl/lib/vtls/x509asn1.c")
             .include(env::var_os("DEP_RUSTLS_FFI_INCLUDE").unwrap());
     } else if cfg!(feature = "windows-static-ssl") {
         if windows {
@@ -324,26 +385,20 @@ fn main() {
                 .file("curl/lib/http_negotiate.c")
                 .file("curl/lib/curl_sspi.c")
                 .file("curl/lib/socks_sspi.c")
+                .file("curl/lib/vauth/krb5_sspi.c")
                 .file("curl/lib/vauth/spnego_sspi.c")
                 .file("curl/lib/vauth/vauth.c")
                 .file("curl/lib/vtls/schannel.c")
                 .file("curl/lib/vtls/schannel_verify.c")
                 .file("curl/lib/vtls/x509asn1.c");
-        } else if target.contains("-apple-") {
-            cfg.define("USE_SECTRANSP", None)
-                .file("curl/lib/vtls/cipher_suite.c")
-                .file("curl/lib/vtls/sectransp.c")
-                .file("curl/lib/vtls/x509asn1.c");
-            if xcode_major_version().map_or(true, |v| v >= 9) {
-                // On earlier Xcode versions (<9), defining HAVE_BUILTIN_AVAILABLE
-                // would cause __bultin_available() to fail to compile due to
-                // unrecognized platform names, so we try to check for Xcode
-                // version first (if unknown, assume it's recent, as in >= 9).
-                cfg.define("HAVE_BUILTIN_AVAILABLE", "1");
-            }
         } else {
             cfg.define("USE_OPENSSL", None)
                 .file("curl/lib/vtls/openssl.c");
+
+            if target.contains("-apple-") && cfg!(feature = "apple-sectrust") {
+                cfg.define("USE_APPLE_SECTRUST", None)
+                    .file("curl/lib/vtls/apple.c");
+            }
 
             println!("cargo:rustc-cfg=link_openssl");
             if let Some(path) = env::var_os("DEP_OPENSSL_INCLUDE") {
@@ -354,15 +409,18 @@ fn main() {
 
     // Configure platform-specific details.
     if windows {
-        cfg.define("WIN32", None)
+        cfg.define("HAVE_CONFIG_H", None)
+            .include(&dst)
+            .define("WIN32", None)
             .define("USE_THREADS_WIN32", None)
             .define("HAVE_IOCTLSOCKET_FIONBIO", None)
             .define("USE_WINSOCK", None)
             .file("curl/lib/bufref.c")
             .file("curl/lib/system_win32.c")
-            .file("curl/lib/version_win32.c")
             .file("curl/lib/vauth/digest_sspi.c")
-            .file("curl/lib/curl_multibyte.c");
+            .file("curl/lib/curlx/multibyte.c")
+            .file("curl/lib/curlx/version_win32.c")
+            .file("curl/lib/curlx/winapi.c");
 
         if cfg!(feature = "spnego") {
             cfg.file("curl/lib/vauth/spnego_sspi.c");
@@ -390,7 +448,7 @@ fn main() {
             .define("HAVE_SOCKETPAIR", None)
             .define("HAVE_STRUCT_TIMEVAL", None)
             .define("HAVE_SYS_UN_H", None)
-            .define("USE_THREADS_POSIX", None)
+            .define("HAVE_THREADS_POSIX", None)
             .define("USE_UNIX_SOCKETS", None)
             .define("RECV_TYPE_ARG2", "void*")
             .define("RECV_TYPE_ARG3", "size_t")
@@ -408,7 +466,10 @@ fn main() {
 
         if target.contains("-apple-") {
             cfg.define("__APPLE__", None)
-                .define("HAVE_MACH_ABSOLUTE_TIME", None);
+                .define("HAVE_MACH_ABSOLUTE_TIME", None)
+                // Rust's `std` provides the necessary symbols since:
+                // https://github.com/rust-lang/rust/pull/138944
+                .define("HAVE_BUILTIN_AVAILABLE", None);
         } else {
             cfg.define("HAVE_CLOCK_GETTIME_MONOTONIC", None)
                 .define("HAVE_GETTIMEOFDAY", None)
@@ -449,6 +510,10 @@ fn main() {
     if windows {
         println!("cargo:rustc-link-lib=ws2_32");
         println!("cargo:rustc-link-lib=crypt32");
+        println!("cargo:rustc-link-lib=iphlpapi");
+        println!("cargo:rustc-link-lib=advapi32");
+        println!("cargo:rustc-link-lib=secur32");
+        println!("cargo:rustc-link-lib=bcrypt");
     }
 
     // Illumos/Solaris requires explicit linking with libnsl
@@ -552,24 +617,6 @@ fn try_pkg_config() -> bool {
     true
 }
 
-fn xcode_major_version() -> Option<u8> {
-    let status = Command::new("xcode-select").arg("-p").status().ok()?;
-    if status.success() {
-        let output = Command::new("xcodebuild").arg("-version").output().ok()?;
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            println!("xcode version: {}", stdout);
-            let mut words = stdout.split_whitespace();
-            if words.next()? == "Xcode" {
-                let version = words.next()?;
-                return version[..version.find('.')?].parse().ok();
-            }
-        }
-    }
-    println!("unable to determine Xcode version, assuming >= 9");
-    None
-}
-
 fn curl_config_reports_http2() -> bool {
     let output = Command::new("curl-config").arg("--features").output();
     let output = match output {
@@ -593,32 +640,4 @@ fn curl_config_reports_http2() -> bool {
     }
 
     true
-}
-
-fn macos_link_search_path() -> Option<String> {
-    let output = cc::Build::new()
-        .get_compiler()
-        .to_command()
-        .arg("--print-search-dirs")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        println!(
-            "failed to run 'clang --print-search-dirs', continuing without a link search path"
-        );
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if line.contains("libraries: =") {
-            let path = line.split('=').nth(1)?;
-            if !path.is_empty() {
-                return Some(format!("{}/lib/darwin", path));
-            }
-        }
-    }
-
-    println!("failed to determine link search path, continuing without it");
-    None
 }

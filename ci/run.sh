@@ -2,6 +2,15 @@
 
 set -ex
 
+# On macOS, test with the deployment target set to Rust's minimum:
+# https://doc.rust-lang.org/rustc/platform-support/apple-darwin.html#os-version
+if [ "$TARGET" = "x86_64-apple-darwin" ]; then
+  export MACOSX_DEPLOYMENT_TARGET=10.12
+fi
+if [ "$TARGET" = "aarch64-apple-darwin" ]; then
+  export MACOSX_DEPLOYMENT_TARGET=11.0
+fi
+
 # For musl on CI always use openssl-src dependency and build from there.
 if [ "$TARGET" = "x86_64-unknown-linux-musl" ]; then
   features="--features static-ssl"
@@ -29,6 +38,11 @@ if [ -z "$NO_RUN" ]; then
     cargo test --target $TARGET $features
     cargo test --target $TARGET --features static-curl $features
     cargo test --target $TARGET --features static-curl,protocol-ftp $features
+    cargo test --target $TARGET --features static-curl,http2 $features
+
+    case "$TARGET" in
+        *-apple-*) cargo test --target $TARGET --features apple-sectrust $features ;;
+    esac
 
     # Note that `-Clink-dead-code` is passed here to suppress `--gc-sections` to
     # help confirm that we're compiling everything necessary for curl itself.

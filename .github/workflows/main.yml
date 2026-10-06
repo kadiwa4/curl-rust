@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [x86_64, i686, x86_64-musl, mingw, system-curl, openssl-110, x86_64-beta, x86_64-nightly, macos, win64, win32]
+        build: [x86_64, i686, x86_64-musl, mingw, system-curl, x86_64-beta, x86_64-nightly, macos, win64, win32]
         include:
           - build: x86_64
             os: ubuntu-latest
@@ -21,7 +21,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - build: ubuntu-lts
             os: ubuntu-24.04
-            rust: 1.75
+            rust: '1.85'
             docker: linux64
             target: x86_64-unknown-linux-gnu
           - build: x86_64-beta
@@ -55,15 +55,10 @@ jobs:
             rust: stable
             docker: linux64-curl
             target: x86_64-unknown-linux-gnu
-          - build: openssl-110
-            os: ubuntu-latest
-            rust: stable
-            docker: alma8
-            target: x86_64-unknown-linux-gnu
           - build: macos
             os: macos-latest
             rust: stable
-            target: x86_64-apple-darwin
+            target: aarch64-apple-darwin
           - build: win32
             os: windows-latest
             rust: stable
